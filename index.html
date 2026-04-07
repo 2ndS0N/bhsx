@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BHSX · Break Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:       #0a0c0f;
+  --surface:  #111418;
+  --surface2: #181c22;
+  --border:   #232830;
+  --border2:  #2d3440;
+  --text:     #e8ecf0;
+  --muted:    #5a6478;
+  --accent:   #00d4ff;
+  --green:    #00e676;
+  --yellow:   #ffd740;
+  --red:      #ff5252;
+  --red-dim:  #1a0a0a;
+  --font-mono: 'Space Mono', monospace;
+  --font-body: 'Noto Sans Thai', sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+  overflow-x: hidden;
+}
+
+/* Grid noise overlay */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,255,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---- HEADER ---- */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(10,12,15,0.92);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 28px;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.logo {
+  display: flex; align-items: center; gap: 12px;
+}
+.logo-mark {
+  width: 32px; height: 32px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+  animation: pulse-border 3s ease-in-out infinite;
+}
+@keyframes pulse-border {
+  0%,100% { box-shadow: 0 0 0 0 rgba(0,212,255,0.3); }
+  50%      { box-shadow: 0 0 0 6px rgba(0,212,255,0); }
+}
+.logo-text { font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
+.logo-sub  { font-size: 11px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.05em; }
+
+.header-right { display: flex; align-items: center; gap: 16px; }
+.clock-display {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+.date-display { font-size: 12px; color: var(--muted); }
+.btn-refresh {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+.btn-refresh .icon { font-size: 14px; transition: transform 0.6s; }
+.btn-refresh:hover .icon { transform: rotate(180deg); }
+.cd-badge {
+  font-size: 11px; color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+/* ---- CONTENT ---- */
+.content { position: relative; z-index: 1; padding: 24px 28px; max-width: 1300px; margin: 0 auto; }
+
+/* ---- ALERT BANNER ---- */
+.alert-banner {
+  display: none;
+  background: linear-gradient(135deg, rgba(255,82,82,0.12), rgba(255,82,82,0.05));
+  border: 1px solid rgba(255,82,82,0.3);
+  border-radius: 10px;
+  padding: 12px 18px;
+  margin-bottom: 20px;
+  font-size: 13px; color: var(--red);
+  animation: flash 1.5s ease-in-out infinite;
+}
+@keyframes flash { 0%,100%{opacity:1} 50%{opacity:0.7} }
+
+.info-bar {
+  display: none;
+  font-size: 12px; color: var(--muted);
+  font-family: var(--font-mono);
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border-radius: 6px;
+  border-left: 2px solid var(--accent);
+}
+
+/* ---- STAT CARDS ---- */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+  border-radius: 12px 12px 0 0;
+}
+.kpi-card.blue::before  { background: var(--accent); }
+.kpi-card.red::before   { background: var(--red); }
+.kpi-card.green::before { background: var(--green); }
+.kpi-label {
+  font-size: 11px; color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.kpi-value {
+  font-family: var(--font-mono);
+  font-size: 42px; font-weight: 700;
+  line-height: 1;
+  transition: color 0.3s;
+}
+.kpi-card.blue  .kpi-value { color: var(--accent); }
+.kpi-card.red   .kpi-value { color: var(--red); }
+.kpi-card.green .kpi-value { color: var(--green); }
+.kpi-card.red.active { border-color: rgba(255,82,82,0.4); background: rgba(255,82,82,0.05); }
+
+/* ---- TABS ---- */
+.tabs {
+  display: flex; gap: 4px;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  width: fit-content;
+}
+.tab {
+  padding: 8px 22px;
+  border: none; border-radius: 7px;
+  font-family: var(--font-body);
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--muted); background: transparent;
+}
+.tab.active { background: var(--surface2); color: var(--text); }
+.tab:hover:not(.active) { color: var(--text); }
+
+/* ---- TABLE ---- */
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.table-header-row {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.table-title { font-size: 13px; font-weight: 600; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 11px; font-weight: 600;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover td { background: rgba(255,255,255,0.025); }
+tbody tr.row-alert { background: rgba(255,82,82,0.05); }
+tbody tr.row-alert:hover td { background: rgba(255,82,82,0.08); }
+td {
+  padding: 13px 16px;
+  font-size: 13px;
+  vertical-align: middle;
+}
+.td-name { font-weight: 600; font-size: 14px; }
+.td-muted { color: var(--muted); font-size: 12px; }
+.td-card  { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+.td-time  { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.min-display {
+  font-family: var(--font-mono);
+  font-size: 22px; font-weight: 700;
+}
+.min-ok    { color: var(--green); }
+.min-warn  { color: var(--yellow); }
+.min-alert { color: var(--red); }
+
+/* ---- BADGE ---- */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.badge-ok    { background: rgba(0,230,118,0.12); color: var(--green); border: 1px solid rgba(0,230,118,0.2); }
+.badge-warn  { background: rgba(255,215,64,0.12); color: var(--yellow); border: 1px solid rgba(255,215,64,0.2); }
+.badge-alert { background: rgba(255,82,82,0.15); color: var(--red); border: 1px solid rgba(255,82,82,0.3); animation: flash 1.5s infinite; }
+
+/* ---- EMPTY STATE ---- */
+.empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+
+/* ---- FILTERS ---- */
+.filters {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 20px; align-items: center;
+}
+.filters select, .filters input[type=date] {
+  padding: 7px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 12px;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.filters select:focus, .filters input:focus { outline: none; border-color: var(--accent); }
+.filters select option { background: var(--surface2); }
+.sep { color: var(--muted); font-size: 12px; }
+.btn-clear {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px; cursor: pointer;
+  font-family: var(--font-body);
+  transition: all 0.2s;
+}
+.btn-clear:hover { border-color: var(--red); color: var(--red); }
+
+/* ---- CHART ---- */
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.chart-label {
+  font-size: 11px; color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+/* ---- PERSON RANK ---- */
+.person-row {
+  display: flex; align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 14px;
+  transition: background 0.15s;
+}
+.person-row:hover { background: var(--surface2); }
+.person-row:last-child { border-bottom: none; }
+.rank {
+  font-family: var(--font-mono);
+  font-size: 11px; color: var(--muted);
+  width: 20px; flex-shrink: 0;
+}
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: var(--accent);
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.person-info { flex: 1; min-width: 0; }
+.person-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.person-stats { display: flex; gap: 20px; flex-shrink: 0; text-align: right; }
+.person-stat-val { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+.person-stat-lbl { font-size: 10px; color: var(--muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; }
+.bar-bg {
+  height: 3px; background: var(--border);
+  border-radius: 2px; margin-top: 6px; overflow: hidden;
+}
+.bar-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.4s ease; }
+
+/* ---- ANIMATIONS ---- */
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+.fade-in { animation: fadeIn 0.4s ease forwards; }
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 700px) {
+  .header { padding: 0 14px; }
+  .content { padding: 14px; }
+  .kpi-row { grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .kpi-value { font-size: 28px; }
+  thead th, td { padding: 9px 10px; font-size: 11px; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-mark">BX</div>
+    <div>
+      <div class="logo-text">Break Monitor</div>
+      <div class="logo-sub">BHSX · Phuket Airport</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div>
+      <div class="clock-display" id="clock">--:--:--</div>
+      <div class="date-display" id="dateStr"></div>
+    </div>
+    <span class="cd-badge" id="cdText"></span>
+    <button class="btn-refresh" onclick="fetchData()">
+      <span class="icon">↻</span> รีเฟรช
+    </button>
+  </div>
+</header>
+
+<div class="content">
+
+  <!-- ALERTS -->
+  <div id="errorBox" class="alert-banner"></div>
+  <div id="infoBox" class="info-bar"></div>
+
+  <!-- KPI -->
+  <div class="kpi-row">
+    <div class="kpi-card blue">
+      <div class="kpi-label">กำลังพักอยู่</div>
+      <div class="kpi-value" id="s-total">—</div>
+    </div>
+    <div class="kpi-card red" id="kpiAlert">
+      <div class="kpi-label">⚠ เกิน 120 นาที</div>
+      <div class="kpi-value" id="s-alert">—</div>
+    </div>
+    <div class="kpi-card green">
+      <div class="kpi-label">ปกติ</div>
+      <div class="kpi-value" id="s-ok">—</div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('realtime',this)">Realtime Monitor</button>
+    <button class="tab" onclick="switchTab('stats',this)">สถิติย้อนหลัง</button>
+  </div>
+
+  <!-- TAB: REALTIME -->
+  <div id="tab-realtime">
+    <div class="table-wrap">
+      <div class="table-header-row">
+        <div class="table-title">Active Breaks</div>
+        <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)" id="lastUpdate"></div>
+      </div>
+      <div id="realtimeBody"></div>
+    </div>
+  </div>
+
+  <!-- TAB: STATS -->
+  <div id="tab-stats" style="display:none">
+    <div class="filters">
+      <select id="fTeam"  onchange="renderStats()"><option value="">ทุกทีม</option></select>
+      <select id="fShift" onchange="renderStats()"><option value="">ทุกกะ</option></select>
+      <select id="fName"  onchange="renderStats()"><option value="">ทุกคน</option></select>
+      <input type="date" id="fFrom" onchange="renderStats()">
+      <span class="sep">–</span>
+      <input type="date" id="fTo"   onchange="renderStats()">
+      <button class="btn-clear" onclick="clearFilters()">✕ ล้าง</button>
+    </div>
+
+    <div class="kpi-row" style="margin-bottom:20px">
+      <div class="kpi-card blue">
+        <div class="kpi-label">Session ทั้งหมด</div>
+        <div class="kpi-value" id="st-count">—</div>
+      </div>
+      <div class="kpi-card green">
+        <div class="kpi-label">เฉลี่ย (นาที)</div>
+        <div class="kpi-value" id="st-avg">—</div>
+      </div>
+      <div class="kpi-card red">
+        <div class="kpi-label">นานสุด (นาที)</div>
+        <div class="kpi-value" id="st-max">—</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-label">จำนวนครั้งพักต่อวัน</div>
+      <canvas id="chartDay" height="90"></canvas>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-header-row">
+        <div class="table-title">Leaderboard</div>
+      </div>
+      <div id="personList"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API_URL   = "https://script.google.com/macros/s/AKfycbwyjQYzz2TKDxH4Lql8WSp7KEmpiUBArMAfohnLlkX124oEU1SzY6iZW1QtxE2O2_sb/exec";
+const ALERT_MIN = 120, WARN_MIN = 60, REFRESH_S = 60;
+
+let allRows = [], chartInst = null, countdown = REFRESH_S;
+
+// DATE
+function parseAny(s){ if(!s||s==="undefined") return null; const d=new Date(s); return isNaN(d)?null:d; }
+function combineDT(wd,lt){
+  const w=parseAny(wd); if(!w) return null;
+  const l=parseAny(lt);
+  if(l) return new Date(w.getFullYear(),w.getMonth(),w.getDate(),l.getHours(),l.getMinutes(),l.getSeconds());
+  return w;
+}
+function dayKey(d){ return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
+function toMin(ms){ return Math.floor(ms/60000); }
+const isRec = t=>/รับ/i.test(t||"");
+const isRet = t=>/คืน/i.test(t||"");
+function initials(name){ const parts=(name||"").split(" "); return (parts[0]?.charAt(0)||"?").toUpperCase(); }
+
+// FETCH
+async function fetchData(){
+  showInfo("กำลังดึงข้อมูล...");
+  try {
+    const res  = await fetch(API_URL+"?t="+Date.now());
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const json = await res.json();
+    if(!json.ok) throw new Error(json.error||"Apps Script error");
+    allRows = processRows(json.data||[]);
+    countdown = REFRESH_S;
+    clearInfo(); clearError();
+    populateFilters();
+    renderRealtime();
+    renderStats();
+    document.getElementById("lastUpdate").textContent =
+      "UPDATED " + new Date().toLocaleTimeString("th-TH");
+  } catch(e){ showError("⚠ "+e.message); }
+}
+
+function processRows(data){
+  return data.map(r=>{
+    const ts = combineDT(r["วันที่ปฏิบัติงาน"],r["ลงเวลา"]) || parseAny(r["ประทับเวลา"]);
+    if(!ts||!r["ชื่อ-สกุล"]) return null;
+    return { ts, dayKey:dayKey(ts),
+      name:(r["ชื่อ-สกุล"]||"").trim(), team:(r["ทีมที่กำลังปฏิบัติงาน"]||"").trim(),
+      shift:(r["กะที่ปฏิบัติงาน"]||"").trim(), pos:(r["ตำแหน่ง"]||"").trim(),
+      card:(r["รหัสบัตรพัก"]||"").trim(), type:(r["เลือกประเภท"]||"").trim() };
+  }).filter(Boolean);
+}
+
+function buildSessions(rows,now){
+  const map={};
+  for(const r of rows){ const k=r.name+"|"+r.dayKey; (map[k]=map[k]||[]).push(r); }
+  const out=[];
+  for(const entries of Object.values(map)){
+    entries.sort((a,b)=>a.ts-b.ts);
+    for(let i=0;i<entries.length;i++){
+      const cur=entries[i];
+      if(isRec(cur.type)){
+        const nxt=entries[i+1];
+        if(nxt&&isRet(nxt.type)){ out.push({...cur,minutes:toMin(nxt.ts-cur.ts),closed:true}); i++; }
+        else out.push({...cur,minutes:toMin(now-cur.ts),closed:false});
+      }
+    }
+  }
+  return out;
+}
+
+// REALTIME
+function renderRealtime(){
+  const now=new Date();
+  const sessions=buildSessions(allRows,now);
+  const onBreak=sessions.filter(s=>!s.closed).sort((a,b)=>b.minutes-a.minutes);
+  const alertCnt=onBreak.filter(s=>s.minutes>=ALERT_MIN).length;
+  document.getElementById("s-total").textContent=onBreak.length;
+  document.getElementById("s-alert").textContent=alertCnt;
+  document.getElementById("s-ok").textContent=onBreak.length-alertCnt;
+  document.getElementById("kpiAlert").classList.toggle("active",alertCnt>0);
+
+  const body=document.getElementById("realtimeBody");
+  if(onBreak.length===0){
+    body.innerHTML=`<div class="empty"><div class="empty-icon">◎</div>ไม่มีพนักงานพักอยู่ในขณะนี้</div>`;
+    return;
+  }
+
+  const maxMin=Math.max(...onBreak.map(s=>s.minutes))||1;
+  body.innerHTML=`<table>
+    <thead><tr>
+      <th>พนักงาน</th><th>ทีม / ตำแหน่ง</th><th>กะ</th><th>รหัสบัตร</th><th>เริ่มพัก</th><th>นาที</th><th>สถานะ</th>
+    </tr></thead>
+    <tbody>${onBreak.map(r=>{
+      const cls=r.minutes>=ALERT_MIN?"min-alert":r.minutes>=WARN_MIN?"min-warn":"min-ok";
+      const badge=r.minutes>=ALERT_MIN?`<span class="badge badge-alert">⚡ เกินกำหนด</span>`:
+                  r.minutes>=WARN_MIN ?`<span class="badge badge-warn">● ใกล้ครบ</span>`:
+                                       `<span class="badge badge-ok">✓ ปกติ</span>`;
+      const pct=Math.min(100,Math.round(r.minutes/maxMin*100));
+      return `<tr class="${r.minutes>=ALERT_MIN?"row-alert":""}">
+        <td class="td-name">${r.name}</td>
+        <td><span style="color:var(--accent);font-size:12px">${r.team||"-"}</span><br><span class="td-muted">${r.pos||"-"}</span></td>
+        <td class="td-muted">${r.shift||"-"}</td>
+        <td class="td-card">${r.card||"-"}</td>
+        <td class="td-time">${r.ts.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</td>
+        <td>
+          <span class="min-display ${cls}">${r.minutes}</span>
+          <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${r.minutes>=ALERT_MIN?"var(--red)":r.minutes>=WARN_MIN?"var(--yellow)":"var(--green)"}"></div></div>
+        </td>
+        <td>${badge}</td>
+      </tr>`;
+    }).join("")}</tbody>
+  </table>`;
+}
+
+// STATS
+function renderStats(){
+  const now=new Date();
+  const sessions=buildSessions(allRows,now).filter(s=>s.closed);
+  const fTeam=document.getElementById("fTeam").value;
+  const fShift=document.getElementById("fShift").value;
+  const fName=document.getElementById("fName").value;
+  const fFrom=document.getElementById("fFrom").value;
+  const fTo=document.getElementById("fTo").value;
+  const closed=sessions.filter(s=>{
+    if(fTeam  && s.team !==fTeam)  return false;
+    if(fShift && s.shift!==fShift) return false;
+    if(fName  && s.name !==fName)  return false;
+    if(fFrom  && s.ts<new Date(fFrom))           return false;
+    if(fTo    && s.ts>new Date(fTo+"T23:59:59")) return false;
+    return true;
+  });
+  const total=closed.length;
+  const avg=total?Math.round(closed.reduce((s,r)=>s+r.minutes,0)/total):0;
+  const max=total?Math.max(...closed.map(r=>r.minutes)):0;
+  document.getElementById("st-count").textContent=total;
+  document.getElementById("st-avg").textContent=avg;
+  document.getElementById("st-max").textContent=max;
+
+  // Chart
+  const dayMap={};
+  for(const s of closed){
+    const k=s.ts.toLocaleDateString("th-TH",{day:"2-digit",month:"2-digit"});
+    if(!dayMap[k]) dayMap[k]={date:k,count:0,_ts:s.ts.getTime()};
+    dayMap[k].count++;
+  }
+  const perDay=Object.values(dayMap).sort((a,b)=>a._ts-b._ts).slice(-14);
+  const ctx=document.getElementById("chartDay");
+  if(chartInst) chartInst.destroy();
+  chartInst=new Chart(ctx,{
+    type:"bar",
+    data:{ labels:perDay.map(d=>d.date),
+           datasets:[{data:perDay.map(d=>d.count),backgroundColor:"rgba(0,212,255,0.6)",
+             borderColor:"rgba(0,212,255,1)",borderWidth:1,borderRadius:4,label:"ครั้ง"}]},
+    options:{
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} ครั้ง`}}},
+      scales:{
+        x:{grid:{color:"rgba(255,255,255,0.04)"},ticks:{color:"#5a6478",font:{size:11}}},
+        y:{beginAtZero:true,grid:{color:"rgba(255,255,255,0.04)"},ticks:{color:"#5a6478",stepSize:1,font:{size:11}}}
+      }
+    }
+  });
+
+  // Person leaderboard
+  const pmap={};
+  for(const s of closed){
+    if(!pmap[s.name]) pmap[s.name]={name:s.name,team:s.team,shift:s.shift,count:0,total:0};
+    pmap[s.name].count++; pmap[s.name].total+=s.minutes;
+  }
+  const people=Object.values(pmap).map(p=>({...p,avg:Math.round(p.total/p.count)})).sort((a,b)=>b.avg-a.avg);
+  const maxAvg=people[0]?.avg||1;
+  const list=document.getElementById("personList");
+  if(people.length===0){
+    list.innerHTML=`<div class="empty"><div class="empty-icon">◎</div>ไม่มีข้อมูล</div>`; return;
+  }
+  list.innerHTML=people.map((p,i)=>{
+    const cls=p.avg>=ALERT_MIN?"min-alert":p.avg>=WARN_MIN?"min-warn":"min-ok";
+    const pct=Math.round(p.avg/maxAvg*100);
+    return `<div class="person-row">
+      <div class="rank">${i+1}</div>
+      <div class="avatar">${initials(p.name)}</div>
+      <div class="person-info">
+        <div class="person-name">${p.name}</div>
+        <div class="person-meta">${p.team||""} ${p.shift?"· "+p.shift:""}</div>
+        <div class="bar-bg" style="margin-top:6px"><div class="bar-fill" style="width:${pct}%;background:${p.avg>=ALERT_MIN?"var(--red)":p.avg>=WARN_MIN?"var(--yellow)":"var(--green)"}"></div></div>
+      </div>
+      <div class="person-stats">
+        <div>
+          <div class="person-stat-val ${cls}">${p.avg}</div>
+          <div class="person-stat-lbl">AVG min</div>
+        </div>
+        <div>
+          <div class="person-stat-val" style="color:var(--muted)">${p.count}</div>
+          <div class="person-stat-lbl">ครั้ง</div>
+        </div>
+        <div>
+          <div class="person-stat-val" style="color:var(--muted)">${p.total}</div>
+          <div class="person-stat-lbl">รวม min</div>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+// FILTERS
+function populateFilters(){
+  const uniq=k=>[...new Set(allRows.map(r=>r[k]).filter(Boolean))].sort();
+  const fill=(id,opts,ph)=>{
+    const sel=document.getElementById(id);
+    const cur=sel.value;
+    sel.innerHTML=`<option value="">${ph}</option>`+opts.map(o=>`<option value="${o}">${o}</option>`).join("");
+    if(opts.includes(cur)) sel.value=cur;
+  };
+  fill("fTeam",uniq("team"),"ทุกทีม");
+  fill("fShift",uniq("shift"),"ทุกกะ");
+  fill("fName",uniq("name"),"ทุกคน");
+}
+function clearFilters(){
+  ["fTeam","fShift","fName"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("fFrom").value="";
+  document.getElementById("fTo").value="";
+  renderStats();
+}
+
+// TAB
+function switchTab(id,btn){
+  document.getElementById("tab-realtime").style.display=id==="realtime"?"":"none";
+  document.getElementById("tab-stats").style.display=id==="stats"?"":"none";
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  btn.classList.add("active");
+  if(id==="stats") renderStats();
+}
+
+// CLOCK
+function tick(){
+  const now=new Date();
+  document.getElementById("clock").textContent=now.toLocaleTimeString("th-TH");
+  document.getElementById("dateStr").textContent=now.toLocaleDateString("th-TH",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+  renderRealtime();
+  countdown--;
+  if(countdown<=0){ fetchData(); countdown=REFRESH_S; }
+  document.getElementById("cdText").textContent=`auto-refresh ${countdown}s`;
+}
+
+// UI helpers
+function showError(m){ const b=document.getElementById("errorBox"); b.textContent=m; b.style.display=""; }
+function clearError(){ document.getElementById("errorBox").style.display="none"; }
+function showInfo(m) { const b=document.getElementById("infoBox");  b.textContent=m; b.style.display=""; }
+function clearInfo() { document.getElementById("infoBox").style.display="none"; }
+
+// INIT
+fetchData();
+setInterval(tick,1000);
+tick();
+</script>
+</body>
+</html>
