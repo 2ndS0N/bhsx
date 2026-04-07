@@ -525,17 +525,22 @@ function processRows(data){
 }
 
 function buildSessions(rows,now){
+  // Group by name only — จับคู่ข้ามวันได้ (เช่น รับบัตร 7/4 คืนบัตร 8/4)
   const map={};
-  for(const r of rows){ const k=r.name+"|"+r.dayKey; (map[k]=map[k]||[]).push(r); }
+  for(const r of rows){ (map[r.name]=map[r.name]||[]).push(r); }
   const out=[];
   for(const entries of Object.values(map)){
     entries.sort((a,b)=>a.ts-b.ts);
     for(let i=0;i<entries.length;i++){
       const cur=entries[i];
       if(isRec(cur.type)){
+        // หา "คืนบัตร" ถัดไปที่เวลามากกว่า (ไม่จำกัดวัน)
         const nxt=entries[i+1];
-        if(nxt&&isRet(nxt.type)){ out.push({...cur,minutes:toMin(nxt.ts-cur.ts),closed:true}); i++; }
-        else out.push({...cur,minutes:toMin(now-cur.ts),closed:false});
+        if(nxt&&isRet(nxt.type)&&nxt.ts>=cur.ts){
+          out.push({...cur,minutes:toMin(nxt.ts-cur.ts),closed:true}); i++;
+        } else {
+          out.push({...cur,minutes:toMin(now-cur.ts),closed:false});
+        }
       }
     }
   }
