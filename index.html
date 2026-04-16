@@ -424,6 +424,7 @@ td {
   <div class="tabs">
     <button class="tab active" onclick="switchTab('realtime',this)">Realtime Monitor</button>
     <button class="tab" onclick="switchTab('stats',this)">สถิติย้อนหลัง</button>
+    <button class="tab" onclick="switchTab('analysis',this)">วิเคราะห์รายบุคคล</button>
   </div>
 
   <!-- TAB: REALTIME -->
@@ -449,18 +450,26 @@ td {
       <button class="btn-clear" onclick="clearFilters()">✕ ล้าง</button>
     </div>
 
-    <div class="kpi-row" style="margin-bottom:20px">
+    <div class="kpi-row" style="margin-bottom:20px;grid-template-columns:repeat(5,1fr)">
       <div class="kpi-card blue">
         <div class="kpi-label">Session ทั้งหมด</div>
         <div class="kpi-value" id="st-count">—</div>
       </div>
       <div class="kpi-card green">
-        <div class="kpi-label">เฉลี่ย (นาที)</div>
-        <div class="kpi-value" id="st-avg">—</div>
+        <div class="kpi-label">Min (นาที)</div>
+        <div class="kpi-value" id="st-min">—</div>
+      </div>
+      <div class="kpi-card" style="border-color:rgba(0,212,255,0.3)">
+        <div class="kpi-label" style="color:var(--accent)">Avg (นาที)</div>
+        <div class="kpi-value" id="st-avg" style="color:var(--accent)">—</div>
       </div>
       <div class="kpi-card red">
-        <div class="kpi-label">นานสุด (นาที)</div>
+        <div class="kpi-label">Max (นาที)</div>
         <div class="kpi-value" id="st-max">—</div>
+      </div>
+      <div class="kpi-card" style="border-color:rgba(255,82,82,0.3)">
+        <div class="kpi-label" style="color:var(--red)">เกิน 120 นาที</div>
+        <div class="kpi-value" id="st-over120" style="color:var(--red)">—</div>
       </div>
     </div>
 
@@ -475,6 +484,19 @@ td {
       </div>
       <div id="personList"></div>
     </div>
+  </div>
+
+  <!-- TAB: ANALYSIS -->
+  <div id="tab-analysis" style="display:none">
+    <div class="filters">
+      <select id="aTeam"  onchange="renderAnalysis()"><option value="">ทุกทีม</option></select>
+      <select id="aShift" onchange="renderAnalysis()"><option value="">ทุกกะ</option></select>
+      <input type="date" id="aFrom" onchange="renderAnalysis()">
+      <span class="sep">–</span>
+      <input type="date" id="aTo"   onchange="renderAnalysis()">
+      <button class="btn-clear" onclick="clearAnalysisFilters()">✕ ล้าง</button>
+    </div>
+    <div id="analysisList"></div>
   </div>
 
 </div>
@@ -686,9 +708,13 @@ function renderStats(){
   const total=closed.length;
   const avg=total?Math.round(closed.reduce((s,r)=>s+r.minutes,0)/total):0;
   const max=total?Math.max(...closed.map(r=>r.minutes)):0;
+  const minV=total?Math.min(...closed.map(r=>r.minutes)):0;
+  const over120=closed.filter(r=>r.minutes>=120).length;
   document.getElementById("st-count").textContent=total;
+  document.getElementById("st-min").textContent=minV;
   document.getElementById("st-avg").textContent=avg;
   document.getElementById("st-max").textContent=max;
+  document.getElementById("st-over120").textContent=over120;
 
   // Chart
   const dayMap={};
@@ -757,6 +783,7 @@ function renderStats(){
 
 // FILTERS
 function populateFilters(){
+  populateAnalysisFilters();
   const uniq=k=>[...new Set(allRows.map(r=>r[k]).filter(Boolean))].sort();
   const fill=(id,opts,ph)=>{
     const sel=document.getElementById(id);
@@ -768,6 +795,18 @@ function populateFilters(){
   fill("fShift",uniq("shift"),"ทุกกะ");
   fill("fName",uniq("name"),"ทุกคน");
 }
+function populateAnalysisFilters(){
+  const uniq=k=>[...new Set(allRows.map(r=>r[k]).filter(Boolean))].sort();
+  const fill=(id,opts,ph)=>{
+    const sel=document.getElementById(id);
+    const cur=sel.value;
+    sel.innerHTML=`<option value="">${ph}</option>`+opts.map(o=>`<option value="${o}">${o}</option>`).join("");
+    if(opts.includes(cur)) sel.value=cur;
+  };
+  fill("aTeam",uniq("team"),"ทุกทีม");
+  fill("aShift",uniq("shift"),"ทุกกะ");
+}
+
 function clearFilters(){
   ["fTeam","fShift","fName"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("fFrom").value="";
@@ -779,9 +818,11 @@ function clearFilters(){
 function switchTab(id,btn){
   document.getElementById("tab-realtime").style.display=id==="realtime"?"":"none";
   document.getElementById("tab-stats").style.display=id==="stats"?"":"none";
+  document.getElementById("tab-analysis").style.display=id==="analysis"?"":"none";
   document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
   btn.classList.add("active");
   if(id==="stats") renderStats();
+  if(id==="analysis"){ populateAnalysisFilters(); renderAnalysis(); }
 }
 
 // CLOCK
@@ -800,6 +841,141 @@ function showError(m){ const b=document.getElementById("errorBox"); b.textConten
 function clearError(){ document.getElementById("errorBox").style.display="none"; }
 function showInfo(m) { const b=document.getElementById("infoBox");  b.textContent=m; b.style.display=""; }
 function clearInfo() { document.getElementById("infoBox").style.display="none"; }
+
+// ANALYSIS TAB
+function clearAnalysisFilters(){
+  ["aTeam","aShift"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("aFrom").value="";
+  document.getElementById("aTo").value="";
+  renderAnalysis();
+}
+
+function renderAnalysis(){
+  const now=new Date();
+  const sessions=buildSessions(allRows,now).filter(s=>s.closed);
+  const fTeam=document.getElementById("aTeam").value;
+  const fShift=document.getElementById("aShift").value;
+  const fFrom=document.getElementById("aFrom").value;
+  const fTo=document.getElementById("aTo").value;
+
+  const closed=sessions.filter(s=>{
+    if(fTeam  && s.team !==fTeam)  return false;
+    if(fShift && s.shift!==fShift) return false;
+    if(fFrom  && s.ts<new Date(fFrom))            return false;
+    if(fTo    && s.ts>new Date(fTo+"T23:59:59"))  return false;
+    return true;
+  });
+
+  // Build per-person stats
+  const pmap={};
+  for(const s of closed){
+    const k=s.name;
+    if(!pmap[k]) pmap[k]={
+      name:s.name, team:s.team, pos:s.pos,
+      sessions:[], multiBreakShifts:0
+    };
+    pmap[k].sessions.push(s);
+  }
+
+  // Detect multi-break in same shift (same name + same shift label + same date)
+  for(const p of Object.values(pmap)){
+    const shiftKeys={};
+    for(const s of p.sessions){
+      const k=s.shift+"|"+s.ts.toDateString();
+      shiftKeys[k]=(shiftKeys[k]||0)+1;
+    }
+    p.multiBreakShifts=Object.values(shiftKeys).filter(v=>v>1).length;
+    p.multiBreakDetail=Object.entries(shiftKeys).filter(([,v])=>v>1)
+      .map(([k,v])=>{ const [sh,dt]=k.split("|"); return `${sh} ${new Date(dt).toLocaleDateString("th-TH",{day:"numeric",month:"short"})} (${v}ครั้ง)`; });
+  }
+
+  const people=Object.values(pmap).map(p=>{
+    const mins=p.sessions.map(s=>s.minutes);
+    const total=mins.reduce((a,b)=>a+b,0);
+    const avg=Math.round(total/mins.length);
+    const min=Math.min(...mins);
+    const max=Math.max(...mins);
+    const over120=mins.filter(m=>m>=120).length;
+    return {...p, total, avg, min, max, over120, count:mins.length};
+  }).sort((a,b)=>b.avg-a.avg);
+
+  const container=document.getElementById("analysisList");
+  if(people.length===0){
+    container.innerHTML=`<div class="empty"><div class="empty-icon">◎</div>ไม่มีข้อมูล</div>`; return;
+  }
+
+  container.innerHTML=people.map((p,i)=>{
+    const avgCls=p.avg>=ALERT_MIN?"min-alert":p.avg>=WARN_MIN?"min-warn":"min-ok";
+    const maxCls=p.max>=ALERT_MIN?"min-alert":p.max>=WARN_MIN?"min-warn":"min-ok";
+    const multiWarn=p.multiBreakShifts>0;
+    const sessions_html=p.sessions.slice().sort((a,b)=>b.ts-a.ts).map(s=>{
+      const sc=s.minutes>=ALERT_MIN?"min-alert":s.minutes>=WARN_MIN?"min-warn":"min-ok";
+      const sw=checkShift(s.ts,s.shift);
+      return `<tr>
+        <td style="color:var(--muted);font-size:11px;font-family:var(--font-mono)">${s.ts.toLocaleDateString("th-TH",{day:"2-digit",month:"2-digit"})}</td>
+        <td style="font-size:12px">${s.shift}</td>
+        <td style="font-family:var(--font-mono);font-size:12px">${s.ts.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</td>
+        <td style="font-size:12px;color:var(--muted)">${s.card||"-"}</td>
+        <td style="font-weight:700;color:var(--${sc.replace("min-","")==="ok"?"green":sc.replace("min-","")==="warn"?"yellow":"red"})">${s.minutes}</td>
+        <td>${sw.warn?`<span style="font-size:10px;color:var(--yellow)">⚠ กะไม่ตรง</span>`:`<span style="font-size:10px;color:var(--muted)">✓</span>`}</td>
+      </tr>`;
+    }).join("");
+
+    return `<div class="table-wrap" style="margin-bottom:16px">
+      <div class="table-header-row" style="flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="avatar">${initials(p.name)}</div>
+          <div>
+            <div style="font-weight:600;font-size:14px">${p.name}</div>
+            <div style="font-size:11px;color:var(--muted)">${p.team||""} · ${p.pos||""}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--muted);font-family:var(--font-mono)">ครั้ง</div>
+            <div style="font-size:18px;font-weight:700;color:var(--accent)">${p.count}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--muted);font-family:var(--font-mono)">MIN</div>
+            <div style="font-size:18px;font-weight:700;color:var(--green)">${p.min}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--muted);font-family:var(--font-mono)">AVG</div>
+            <div class="min-display ${avgCls}" style="font-size:18px">${p.avg}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--muted);font-family:var(--font-mono)">MAX</div>
+            <div class="min-display ${maxCls}" style="font-size:18px">${p.max}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--muted);font-family:var(--font-mono)">รวม</div>
+            <div style="font-size:18px;font-weight:700;color:var(--muted)">${p.total}</div>
+          </div>
+          ${p.over120>0?`<div style="text-align:center">
+            <div style="font-size:10px;color:var(--red);font-family:var(--font-mono)">เกิน 120</div>
+            <div style="font-size:18px;font-weight:700;color:var(--red)">${p.over120}</div>
+          </div>`:""}
+          ${multiWarn?`<div style="background:rgba(255,215,64,0.1);border:1px solid rgba(255,215,64,0.3);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--yellow)">
+            ⚠ พักซ้ำกะ: ${p.multiBreakDetail.join(", ")}
+          </div>`:""}
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--muted);font-family:var(--font-mono)">วันที่</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--muted);font-family:var(--font-mono)">กะ</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--muted);font-family:var(--font-mono)">เริ่มพัก</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--muted);font-family:var(--font-mono)">บัตร</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--muted);font-family:var(--font-mono)">นาที</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--muted);font-family:var(--font-mono)">กะตรง</th>
+          </tr></thead>
+          <tbody>${sessions_html}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join("");
+}
 
 // INIT
 fetchData();
