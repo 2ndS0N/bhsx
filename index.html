@@ -481,7 +481,18 @@ const ALERT_MIN = 120, WARN_MIN = 60, REFRESH_S = 60;
 let allRows = [], chartInst = null, countdown = REFRESH_S;
 
 // DATE
-function parseAny(s){ if(!s||s==="undefined") return null; const d=new Date(s); return isNaN(d)?null:d; }
+function parseAny(s){
+  if(!s||s==="undefined"||s==="") return null;
+  // standard ISO "yyyy-MM-dd HH:mm:ss" — Apps Script format
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if(iso) return new Date(+iso[1],+iso[2]-1,+iso[3],+iso[4],+iso[5],+iso[6]);
+  // legacy "d/M/yyyy HH:mm:ss"
+  const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+  if(dmy) return new Date(+dmy[3],+dmy[2]-1,+dmy[1],+dmy[4],+dmy[5],+dmy[6]);
+  // native fallback (handles "Thu Apr 16 2026 08:59:02 GMT+0700")
+  const d = new Date(s);
+  return isNaN(d)?null:d;
+}
 function combineDT(wd,lt){
   const w=parseAny(wd); if(!w) return null;
   const l=parseAny(lt);
