@@ -400,7 +400,7 @@ td {
   <div id="infoBox" class="info-bar"></div>
 
   <!-- KPI -->
-  <div class="kpi-row">
+  <div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
     <div class="kpi-card blue">
       <div class="kpi-label">กำลังพักอยู่</div>
       <div class="kpi-value" id="s-total">—</div>
@@ -412,6 +412,10 @@ td {
     <div class="kpi-card green">
       <div class="kpi-label">ปกติ</div>
       <div class="kpi-value" id="s-ok">—</div>
+    </div>
+    <div class="kpi-card" style="border-color:rgba(255,215,64,0.3);display:none">
+      <div class="kpi-label" style="color:var(--yellow)">⚠ กะไม่ตรง</div>
+      <div class="kpi-value" id="s-shiftwarn" style="color:var(--yellow)">0</div>
     </div>
   </div>
 
@@ -503,6 +507,32 @@ function dayKey(d){ return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; 
 function toMin(ms){ return Math.floor(ms/60000); }
 const isRec = t=>/รับ/i.test(t||"");
 const isRet = t=>/คืน/i.test(t||"");
+
+// ตรวจสอบว่าเวลาประทับตรงกับกะที่ระบุหรือไม่
+function checkShift(ts, shift) {
+  if (!ts || !shift) return { ok: true, warn: false };
+  const h = ts.getHours();
+  const m = ts.getMinutes();
+  const totalMin = h * 60 + m;
+  const shiftName = shift.trim();
+
+  // กะเช้า 07:00-16:00
+  if (/เช้า/i.test(shiftName)) {
+    const ok = totalMin >= 7*60 && totalMin < 16*60;
+    return { ok, warn: !ok, msg: ok ? "" : `⚠ เวลา ${ts.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})} ไม่ตรงกะเช้า (07:00-16:00)` };
+  }
+  // กะบ่าย 15:00-23:59
+  if (/บ่าย/i.test(shiftName)) {
+    const ok = totalMin >= 15*60 && totalMin <= 23*60+59;
+    return { ok, warn: !ok, msg: ok ? "" : `⚠ เวลา ${ts.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})} ไม่ตรงกะบ่าย (15:00-23:59)` };
+  }
+  // กะดึก 23:00-08:00 (ข้ามวัน)
+  if (/ดึก/i.test(shiftName)) {
+    const ok = totalMin >= 23*60 || totalMin < 8*60;
+    return { ok, warn: !ok, msg: ok ? "" : `⚠ เวลา ${ts.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})} ไม่ตรงกะดึก (23:00-08:00)` };
+  }
+  return { ok: true, warn: false, msg: "" };
+}
 function initials(name){ const parts=(name||"").split(" "); return (parts[0]?.charAt(0)||"?").toUpperCase(); }
 
 // FETCH
@@ -530,10 +560,13 @@ function processRows(data){
     const ts = parseAny(r["ประทับเวลา"]);
     if(!ts||!r["ชื่อ-สกุล"]) return null;
     // ลงเวลา + วันที่ใช้สำหรับ display เท่านั้น
+    const shift = (r["กะที่ปฏิบัติงาน"]||"").trim();
+    const shiftCheck = checkShift(ts, shift);
     return { ts, dayKey:dayKey(ts),
       name:(r["ชื่อ-สกุล"]||"").trim(), team:(r["ทีมที่กำลังปฏิบัติงาน"]||"").trim(),
-      shift:(r["กะที่ปฏิบัติงาน"]||"").trim(), pos:(r["ตำแหน่ง"]||"").trim(),
-      card:(r["รหัสบัตรพัก"]||"").trim(), type:(r["เลือกประเภท"]||"").trim() };
+      shift, pos:(r["ตำแหน่ง"]||"").trim(),
+      card:(r["รหัสบัตรพัก"]||"").trim(), type:(r["เลือกประเภท"]||"").trim(),
+      shiftWarn: shiftCheck.warn, shiftMsg: shiftCheck.msg };
   }).filter(Boolean);
 }
 
@@ -569,10 +602,14 @@ function renderRealtime(){
   const sessions=buildSessions(allRows,now);
   const onBreak=sessions.filter(s=>!s.closed).sort((a,b)=>b.minutes-a.minutes);
   const alertCnt=onBreak.filter(s=>s.minutes>=ALERT_MIN).length;
+  const shiftWarnCnt=onBreak.filter(s=>s.shiftWarn).length;
   document.getElementById("s-total").textContent=onBreak.length;
   document.getElementById("s-alert").textContent=alertCnt;
   document.getElementById("s-ok").textContent=onBreak.length-alertCnt;
   document.getElementById("kpiAlert").classList.toggle("active",alertCnt>0);
+  // แสดง shift warning ถ้ามี
+  const swEl=document.getElementById("s-shiftwarn");
+  if(swEl){ swEl.textContent=shiftWarnCnt; swEl.closest(".kpi-card").style.display=shiftWarnCnt>0?"":"none"; }
 
   const body=document.getElementById("realtimeBody");
   if(onBreak.length===0){
@@ -590,9 +627,11 @@ function renderRealtime(){
       const badge=r.minutes>=ALERT_MIN?`<span class="badge badge-alert">⚡ เกินกำหนด</span>`:
                   r.minutes>=WARN_MIN ?`<span class="badge badge-warn">● ใกล้ครบ</span>`:
                                        `<span class="badge badge-ok">✓ ปกติ</span>`;
+      const shiftBadge=r.shiftWarn
+        ?`<span class="badge badge-warn" title="${r.shiftMsg}" style="margin-top:4px;display:inline-block">⚠ กะไม่ตรง</span>`:"";
       const pct=Math.min(100,Math.round(r.minutes/maxMin*100));
       return `<tr class="${r.minutes>=ALERT_MIN?"row-alert":""}">
-        <td class="td-name">${r.name}</td>
+        <td class="td-name">${r.name}${r.shiftWarn?`<br><span style="font-size:11px;color:var(--yellow)" title="${r.shiftMsg}">⚠ กะไม่ตรง</span>`:""}</td>
         <td><span style="color:var(--accent);font-size:12px">${r.team||"-"}</span><br><span class="td-muted">${r.pos||"-"}</span></td>
         <td class="td-muted">${r.shift||"-"}</td>
         <td class="td-card">${r.card||"-"}</td>
