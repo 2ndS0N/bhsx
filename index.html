@@ -554,7 +554,9 @@ function buildSessions(rows,now){
 function renderRealtime(){
   const now=new Date();
   const sessions=buildSessions(allRows,now);
-  const onBreak=sessions.filter(s=>!s.closed).sort((a,b)=>b.minutes-a.minutes);
+  const H24 = 24*60*60*1000;
+  // แสดงเฉพาะ open session ที่รับบัตรภายใน 24 ชม. — กรอง orphan records เก่า
+  const onBreak=sessions.filter(s=>!s.closed && (new Date()-s.ts)<=H24).sort((a,b)=>b.minutes-a.minutes);
   const alertCnt=onBreak.filter(s=>s.minutes>=ALERT_MIN).length;
   document.getElementById("s-total").textContent=onBreak.length;
   document.getElementById("s-alert").textContent=alertCnt;
