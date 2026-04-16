@@ -528,23 +528,26 @@ function processRows(data){
 }
 
 function buildSessions(rows,now){
-  // Group by name only — จับคู่ข้ามวันได้ (เช่น รับบัตร 7/4 คืนบัตร 8/4)
   const map={};
   for(const r of rows){ (map[r.name]=map[r.name]||[]).push(r); }
   const out=[];
   for(const entries of Object.values(map)){
     entries.sort((a,b)=>a.ts-b.ts);
+    // pendingOpen = รับบัตรล่าสุดที่ยังไม่มีคู่คืน
+    // ถ้าเจอ รับ ซ้อน รับ = orphan เก่า ให้ทิ้งไปเลย
+    let pendingOpen = null;
     for(let i=0;i<entries.length;i++){
       const cur=entries[i];
       if(isRec(cur.type)){
-        // หา "คืนบัตร" ถัดไปที่เวลามากกว่า (ไม่จำกัดวัน)
-        const nxt=entries[i+1];
-        if(nxt&&isRet(nxt.type)&&nxt.ts>=cur.ts){
-          out.push({...cur,minutes:toMin(nxt.ts-cur.ts),closed:true}); i++;
-        } else {
-          out.push({...cur,minutes:toMin(now-cur.ts),closed:false});
-        }
+        pendingOpen = cur; // เขียนทับ — เก็บแค่ล่าสุด
+      } else if(isRet(cur.type) && pendingOpen && cur.ts >= pendingOpen.ts){
+        out.push({...pendingOpen, minutes:toMin(cur.ts-pendingOpen.ts), closed:true});
+        pendingOpen = null;
       }
+    }
+    // open session ล่าสุดที่ยังไม่คืนบัตร
+    if(pendingOpen){
+      out.push({...pendingOpen, minutes:toMin(now-pendingOpen.ts), closed:false});
     }
   }
   return out;
@@ -554,9 +557,7 @@ function buildSessions(rows,now){
 function renderRealtime(){
   const now=new Date();
   const sessions=buildSessions(allRows,now);
-  const H24 = 24*60*60*1000;
-  // แสดงเฉพาะ open session ที่รับบัตรภายใน 24 ชม. — กรอง orphan records เก่า
-  const onBreak=sessions.filter(s=>!s.closed && (new Date()-s.ts)<=H24).sort((a,b)=>b.minutes-a.minutes);
+  const onBreak=sessions.filter(s=>!s.closed).sort((a,b)=>b.minutes-a.minutes);
   const alertCnt=onBreak.filter(s=>s.minutes>=ALERT_MIN).length;
   document.getElementById("s-total").textContent=onBreak.length;
   document.getElementById("s-alert").textContent=alertCnt;
