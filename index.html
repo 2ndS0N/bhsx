@@ -530,8 +530,7 @@ function processRows(data){
     const ts = parseAny(r["ประทับเวลา"]);
     if(!ts||!r["ชื่อ-สกุล"]) return null;
     // ลงเวลา + วันที่ใช้สำหรับ display เท่านั้น
-    const displayTS = combineDT(r["วันที่ปฏิบัติงาน"],r["ลงเวลา"]) || ts;
-    return { ts, displayTS, dayKey:dayKey(ts),
+    return { ts, dayKey:dayKey(ts),
       name:(r["ชื่อ-สกุล"]||"").trim(), team:(r["ทีมที่กำลังปฏิบัติงาน"]||"").trim(),
       shift:(r["กะที่ปฏิบัติงาน"]||"").trim(), pos:(r["ตำแหน่ง"]||"").trim(),
       card:(r["รหัสบัตรพัก"]||"").trim(), type:(r["เลือกประเภท"]||"").trim() };
@@ -597,7 +596,7 @@ function renderRealtime(){
         <td><span style="color:var(--accent);font-size:12px">${r.team||"-"}</span><br><span class="td-muted">${r.pos||"-"}</span></td>
         <td class="td-muted">${r.shift||"-"}</td>
         <td class="td-card">${r.card||"-"}</td>
-        <td class="td-time">${(r.displayTS||r.ts).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</td>
+        <td class="td-time">${r.ts.toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})}</td>
         <td>
           <span class="min-display ${cls}">${r.minutes}</span>
           <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${r.minutes>=ALERT_MIN?"var(--red)":r.minutes>=WARN_MIN?"var(--yellow)":"var(--green)"}"></div></div>
